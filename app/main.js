@@ -1,22 +1,53 @@
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
+const cameraSelect = document.getElementById('cameraSelect');
 const ctx = canvas.getContext('2d');
 
-// ビデオサイズ
 canvas.width = 640;
 canvas.height = 480;
 
-// カメラストリームの取得
-navigator.mediaDevices.getUserMedia({
-    video: true
-}).then(stream => {
-    video.srcObject = stream;
-}).catch(err => {
-    console.error("カメラの起動に失敗しました: ", err);
+let model;
+let currentStream;
+
+// デバイスリストの取得とカメラ選択ドロップダウンに表示
+navigator.mediaDevices.enumerateDevices().then(devices => {
+    const videoDevices = devices.filter(device => device.kind === 'videoinput');
+    videoDevices.forEach(device => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.text = device.label || `カメラ ${cameraSelect.length + 1}`;
+        cameraSelect.appendChild(option);
+    });
+
+    if (videoDevices.length > 0) {
+        // 初期カメラの設定
+        startCamera(videoDevices[0].deviceId);
+    }
 });
 
-// coco-ssdモデルをロード
-let model;
+// カメラ変更イベント
+cameraSelect.onchange = () => {
+    startCamera(cameraSelect.value);
+};
+
+// カメラの起動
+function startCamera(deviceId) {
+    if (currentStream) {
+        // 前のストリームを停止
+        currentStream.getTracks().forEach(track => track.stop());
+    }
+
+    navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId } }
+    }).then(stream => {
+        currentStream = stream;
+        video.srcObject = stream;
+    }).catch(err => {
+        console.error("カメラの起動に失敗しました: ", err);
+    });
+}
+
+// coco-ssdモデルをロードして物体検出を開始
 cocoSsd.load().then(loadedModel => {
     model = loadedModel;
     detectObjects();
@@ -24,12 +55,10 @@ cocoSsd.load().then(loadedModel => {
 
 function detectObjects() {
     model.detect(video).then(predictions => {
-        // キャンバスをクリア
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         predictions.forEach(prediction => {
             if (prediction.class === 'person' || prediction.class === 'glasses') {
-                // 検出された物体に枠を描く
                 ctx.beginPath();
                 ctx.rect(...prediction.bbox);
                 ctx.lineWidth = 2;
@@ -44,7 +73,7 @@ function detectObjects() {
             }
         });
 
-        // 次のフレームで再び検出
+        // 再帰的に検出を繰り返す
         requestAnimationFrame(detectObjects);
     });
 }
